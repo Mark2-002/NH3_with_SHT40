@@ -29,8 +29,8 @@ LOG_MODULE_REGISTER(TRANSMETER, LOG_LEVEL_DBG);
 
 /* change this to any other UART peripheral if desired */
 #define UART_DEVICE_NODE DT_CHOSEN(zephyr_shell_uart)
-
-/* Get the UART device specified in the device tree */
+#define LED0_NODE DT_ALIAS(led1) /* Get the UART device specified in the device tree */
+static const struct gpio_dt_spec buzzer = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 static const struct device *const uart_dev = DEVICE_DT_GET(UART_DEVICE_NODE);
 
 int err;
@@ -39,7 +39,9 @@ const struct device *const sht = DEVICE_DT_GET_ANY(sensirion_sht4x);
 struct bt_le_ext_adv *adv;
 struct device *dev;
 struct k_work work;
+struct k_work work1;
 struct k_timer timer;
+struct k_timer timer1;
 uint8_t mode_switch[9] = {0xFF, 0x01, 0x78, 0x03, 0x00, 0x00, 0x00, 0x00, 0x84};
 uint8_t read_cmd[9] = {0xFF, 0x01, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x79};
 uint8_t rx_buf[9];
@@ -187,6 +189,23 @@ void exp_function(struct k_timer *timer_id)
 }
 K_TIMER_DEFINE(timer, exp_function, NULL);
 
+
+void Alarm(){
+    if (NH3_Value >= 10)
+    {
+        gpio_pin_set_dt(&buzzer, 0);
+        k_msleep(500);
+        gpio_pin_set_dt(&buzzer, 1);
+    }
+}
+
+K_WORK_DEFINE(work1, Alarm);
+void exp_function1   (struct k_timer *timer_id)
+{
+    k_work_submit(&work1);
+}
+K_TIMER_DEFINE(timer1, exp_function1, NULL);
+
 int main()
 {
     if (!device_is_ready(uart_dev))
@@ -200,8 +219,10 @@ int main()
     adv_param_init();
     send_uart_command(mode_switch, sizeof(mode_switch));
     LOG_INF("Mode Switching...");
-    k_timer_start(&timer, K_SECONDS(1), K_SECONDS(2));
-
+    k_timer_start(&timer, K_SECONDS(1), K_SECONDS(10));
+    k_timer_start(&timer1, K_SECONDS(1), K_SECONDS(1));
+    gpio_pin_configure_dt(&buzzer, GPIO_OUTPUT_ACTIVE);
+    gpio_pin_set_dt(&buzzer,1);
     while(1){
         // k_msleep(1500);
         send_uart_command(read_cmd, sizeof(read_cmd));
@@ -214,6 +235,7 @@ int main()
                 NH3_Value = (rx_buf[2] << 8) | rx_buf[3];
                 printk("\nNH3 in Air: %d ppm\n", NH3_Value);
             }
+            
             memset(rx_buf, 0, sizeof(rx_buf));
         }
         else
@@ -221,6 +243,7 @@ int main()
             LOG_ERR("UART receive error: %d", err);
             k_msleep(2000);
         }
+       
     }
 
     return 0;
